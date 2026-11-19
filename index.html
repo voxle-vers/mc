@@ -15,8 +15,8 @@ canvas{display:block;width:100%;height:100%;image-rendering:pixelated}
 #help{left:12px}
 #status{right:12px}
 #crosshair{position:absolute;left:50%;top:50%;transform:translate(-50%,-50%);font:bold 25px Arial}
-#hotbar{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);display:flex;gap:3px;padding:5px;background:#2229;border:2px solid #ddd9}
-.slot{width:48px;height:48px;position:relative;display:grid;place-items:center;background:#555b;border:2px solid #777;font-size:25px}
+#hotbar{position:absolute;left:50%;bottom:18px;transform:translateX(-50%);display:flex;gap:3px;padding:5px;background:#2229;border:2px solid #ddd9;pointer-events:auto;z-index:3;touch-action:manipulation}
+.slot{width:48px;height:48px;position:relative;display:grid;place-items:center;background:#555b;border:2px solid #777;font-size:25px;cursor:pointer;user-select:none;touch-action:manipulation}
 .slot.selected{border:3px solid white;background:#999b;outline:1px solid #222}
 .slot small{position:absolute;right:3px;bottom:1px;font-size:11px}
 #tip{position:absolute;left:50%;bottom:82px;transform:translateX(-50%);padding:5px 9px;background:#0009;font-size:12px;white-space:nowrap}
@@ -33,6 +33,25 @@ button:hover{background:#888}
 .slot{width:39px;height:42px;font-size:20px}
 #hotbar{bottom:10px;gap:2px}
 .panel{padding:18px}
+}
+#touchControls{position:fixed;inset:0;z-index:4;pointer-events:none;display:none;touch-action:none}
+.joy{position:absolute;width:142px;height:142px;border-radius:50%;background:#1118;border:3px solid #ffffff88;pointer-events:auto;touch-action:none;user-select:none}
+.joy .stick{position:absolute;left:50%;top:50%;width:58px;height:58px;transform:translate(-50%,-50%);border-radius:50%;background:#ddd9;border:3px solid #fff;box-shadow:0 2px 8px #0008}
+#moveJoy{left:24px;bottom:105px}
+#lookJoy{right:24px;bottom:105px}
+.touchBtn{position:absolute;pointer-events:auto;touch-action:none;border:2px solid #fff9;background:#222b;color:white;font-weight:bold;border-radius:12px;padding:13px 16px;user-select:none}
+#jumpBtn{right:175px;bottom:45px}
+#mineBtn{right:24px;bottom:45px}
+#placeBtn{right:105px;bottom:45px}
+#sprintBtn{left:24px;bottom:45px}
+@media(max-width:600px){
+#touchControls{display:block}
+#moveJoy{left:16px;bottom:120px}
+#lookJoy{right:16px;bottom:120px}
+#jumpBtn{right:160px;bottom:42px}
+#mineBtn{right:16px;bottom:42px}
+#placeBtn{right:88px;bottom:42px}
+#sprintBtn{left:16px;bottom:42px}
 }
 </style>
 </head>
@@ -66,6 +85,15 @@ button:hover{background:#888}
   <button id="play">Play</button>
   <p style="font-size:12px;color:#bbb">Desktop browser recommended. Internet is required to load the 3D engine.</p>
  </div>
+</div>
+
+<div id="touchControls">
+ <div class="joy" id="moveJoy" aria-label="Movement joystick"><div class="stick"></div></div>
+ <div class="joy" id="lookJoy" aria-label="Camera joystick"><div class="stick"></div></div>
+ <button class="touchBtn" id="jumpBtn">JUMP</button>
+ <button class="touchBtn" id="mineBtn">MINE</button>
+ <button class="touchBtn" id="placeBtn">PLACE</button>
+ <button class="touchBtn" id="sprintBtn">SPRINT</button>
 </div>
 
 <div id="message"></div>
@@ -294,7 +322,7 @@ for(let i=0;i<12;i++){
    new THREE.BoxGeometry(4,1,3),
    cloudMat
   );
-  puff.position.set(j*2,0,(j%2)*.6);
+  puff.position.set(j*2,0,(j%2)*.5);
   cloud.add(puff);
  }
 
@@ -314,6 +342,8 @@ camera.position.set(player.x,player.eye,player.z);
 let yaw=0;
 let pitch=0;
 let locked=false;
+const touchMode=('ontouchstart' in window || navigator.maxTouchPoints>0);
+let touchPlaying=false;
 let selected=0;
 let onGround=false;
 let paused=true;
@@ -339,6 +369,19 @@ function drawHotbar(){
 
   slot.className='slot'+(i===selected?' selected':'');
   slot.innerHTML=icons[type]+'<small>'+inventory[type]+'</small>';
+  slot.title=type.charAt(0).toUpperCase()+type.slice(1);
+
+  slot.addEventListener('pointerdown',e=>{
+   e.stopPropagation();
+   if(locked)document.exitPointerLock?.();
+  });
+
+  slot.addEventListener('click',e=>{
+   e.stopPropagation();
+   selected=i;
+   drawHotbar();
+   notify('Selected '+type);
+  });
 
   hotbar.appendChild(slot);
  });
@@ -347,25 +390,51 @@ function drawHotbar(){
 drawHotbar();
 
 function captureMouse(){
- renderer.domElement.requestPointerLock?.();
+ touchPlaying=true;
+ paused=false;
+ tip.style.display='none';
+
+ if(!touchMode){
+  try{
+   const result=renderer.domElement.requestPointerLock?.();
+   if(result&&typeof result.catch==='function'){
+    result.catch(()=>{
+     touchPlaying=true;
+     paused=false;
+    });
+   }
+  }catch(err){
+   touchPlaying=true;
+   paused=false;
+  }
+ }
 }
 
-document.querySelector('#play').addEventListener('click',()=>{
+document.querySelector('#play').addEventListener('click',e=>{
+ e.preventDefault();
+ e.stopPropagation();
  overlay.style.display='none';
+ touchPlaying=true;
  paused=false;
+ tip.style.display='none';
  captureMouse();
 });
 
 document.addEventListener('pointerlockchange',()=>{
  locked=document.pointerLockElement===renderer.domElement;
 
- if(!locked&&overlay.style.display==='none'){
-  paused=true;
-  tip.textContent='Paused — click the world to continue';
-  tip.style.display='block';
- }else if(locked){
+ if(locked){
+  touchPlaying=true;
   paused=false;
   tip.style.display='none';
+ }else if(overlay.style.display==='none'){
+  touchPlaying=true;
+  paused=false;
+
+  if(!touchMode){
+   tip.textContent='Click the world to recapture mouse';
+   tip.style.display='block';
+  }
  }
 });
 
@@ -376,9 +445,7 @@ document.addEventListener('mousemove',e=>{
 
  yaw-=e.movementX*MOUSE_SENSITIVITY;
  pitch-=e.movementY*MOUSE_SENSITIVITY;
-
  pitch=Math.max(-1.52,Math.min(1.52,pitch));
-
  camera.rotation.set(pitch,yaw,0);
 });
 
@@ -409,6 +476,100 @@ window.addEventListener('wheel',e=>{
 },{passive:true});
 
 document.addEventListener('contextmenu',e=>e.preventDefault());
+
+const touchMove={x:0,y:0};
+const touchLook={x:0,y:0};
+let touchJump=false;
+let touchSprint=false;
+
+function setupJoystick(el,state){
+ const knob=el.querySelector('.stick');
+ let pointer=null;
+
+ function update(e){
+  const r=el.getBoundingClientRect();
+  const cx=r.left+r.width/2;
+  const cy=r.top+r.height/2;
+  const max=r.width*.34;
+
+  let dx=e.clientX-cx;
+  let dy=e.clientY-cy;
+  const len=Math.hypot(dx,dy);
+
+  if(len>max){
+   dx*=max/len;
+   dy*=max/len;
+  }
+
+  state.x=dx/max;
+  state.y=-dy/max;
+  knob.style.left=`${50+state.x*34}%`;
+  knob.style.top=`${50-state.y*34}%`;
+ }
+
+ el.addEventListener('pointerdown',e=>{
+  e.preventDefault();
+  pointer=e.pointerId;
+  el.setPointerCapture(pointer);
+  update(e);
+ });
+
+ el.addEventListener('pointermove',e=>{
+  if(pointer===e.pointerId)update(e);
+ });
+
+ const reset=()=>{
+  pointer=null;
+  state.x=0;
+  state.y=0;
+  knob.style.left='50%';
+  knob.style.top='50%';
+ };
+
+ el.addEventListener('pointerup',e=>{
+  if(pointer===e.pointerId)reset();
+ });
+
+ el.addEventListener('pointercancel',reset);
+}
+
+setupJoystick(document.querySelector('#moveJoy'),touchMove);
+setupJoystick(document.querySelector('#lookJoy'),touchLook);
+
+const touchControls=document.querySelector('#touchControls');
+
+if('ontouchstart' in window || navigator.maxTouchPoints>0){
+ touchControls.style.display='block';
+}
+
+function bindHoldButton(id,on,off){
+ const b=document.querySelector(id);
+
+ b.addEventListener('pointerdown',e=>{
+  e.preventDefault();
+  on();
+ });
+
+ b.addEventListener('pointerup',e=>{
+  e.preventDefault();
+  off?.();
+ });
+
+ b.addEventListener('pointercancel',()=>off?.());
+ b.addEventListener('pointerleave',e=>{
+  if(e.buttons)off?.();
+ });
+}
+
+bindHoldButton('#jumpBtn',()=>touchJump=true,()=>touchJump=false);
+bindHoldButton('#mineBtn',()=>performAction(0));
+bindHoldButton('#placeBtn',()=>performAction(2));
+
+document.querySelector('#sprintBtn').addEventListener('click',()=>{
+ touchSprint=!touchSprint;
+ document.querySelector('#sprintBtn').style.background=
+  touchSprint?'#567a38':'#222b';
+});
 
 const raycaster=new THREE.Raycaster();
 raycaster.far=6;
@@ -450,18 +611,15 @@ outline.scale.setScalar(1.006);
 outline.visible=false;
 scene.add(outline);
 
-renderer.domElement.addEventListener('mousedown',e=>{
- if(!locked){
-  if(overlay.style.display==='none')captureMouse();
-  return;
- }
+function performAction(button){
+ if(!locked&&!touchPlaying)return;
 
  const hit=aimedBlock();
  if(!hit)return;
 
  const {block:b,normal:n}=hit;
 
- if(e.button===0){
+ if(button===0){
   if(b.y<=-4){
    notify('That block is bedrock.');
    return;
@@ -472,7 +630,7 @@ renderer.domElement.addEventListener('mousedown',e=>{
   rebuildWorld();
   drawHotbar();
 
- }else if(e.button===2){
+ }else if(button===2){
   const type=names[selected];
 
   if(inventory[type]<=0){
@@ -496,6 +654,15 @@ renderer.domElement.addEventListener('mousedown',e=>{
   rebuildWorld();
   drawHotbar();
  }
+}
+
+renderer.domElement.addEventListener('mousedown',e=>{
+ if(!locked){
+  if(overlay.style.display==='none')captureMouse();
+  return;
+ }
+
+ performAction(e.button);
 });
 
 function intersectsPlayerBlock(x,y,z){
@@ -600,28 +767,30 @@ function frame(now){
  const dt=Math.min((now-previous)/1000,.05);
  previous=now;
 
- if(locked&&!paused){
-  const forward=(keys.KeyW?1:0)-(keys.KeyS?1:0);
-  const side=(keys.KeyD?1:0)-(keys.KeyA?1:0);
+ if((locked||touchPlaying)&&!paused){
+  if(touchLook.x||touchLook.y){
+   yaw-=touchLook.x*2.8*dt;
+   pitch+=touchLook.y*2.2*dt;
+   pitch=Math.max(-1.52,Math.min(1.52,pitch));
+   camera.rotation.set(pitch,yaw,0);
+  }
+
+  const forward=(keys.KeyW?1:0)-(keys.KeyS?1:0)+touchMove.y;
+  const side=(keys.KeyD?1:0)-(keys.KeyA?1:0)+touchMove.x;
 
   const length=Math.hypot(forward,side)||1;
-
   const f=forward/length;
   const s=side/length;
 
-  const sprint=keys.ShiftLeft||keys.ShiftRight;
+  const sprint=keys.ShiftLeft||keys.ShiftRight||touchSprint;
   const speed=sprint?8.5:5.2;
 
-  // Camera-aligned movement:
-  // W moves in the direction the camera is facing.
-  // S moves backward.
-  // A and D move sideways relative to the camera.
   const dx=(-Math.sin(yaw)*f+Math.cos(yaw)*s)*speed*dt;
   const dz=(-Math.cos(yaw)*f-Math.sin(yaw)*s)*speed*dt;
 
   moveHorizontal(dx,dz);
 
-  if(keys.Space&&onGround){
+  if((keys.Space||touchJump)&&onGround){
    player.vy=7.1;
    onGround=false;
   }
@@ -640,7 +809,7 @@ function frame(now){
 
  camera.position.set(player.x,player.eye,player.z);
 
- const target=locked?aimedBlock():null;
+ const target=(locked||touchPlaying)&&!paused?aimedBlock():null;
 
  if(target){
   outline.position.set(
@@ -666,3 +835,4 @@ window.addEventListener('resize',()=>{
 </script>
 </body>
 </html>
+ 
